@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Git commit and push
 
-Remote: `git@github.com:shemaiahCox/deep-agents.git` (`origin`).
+Remote: `git@github.com:shemaiahCox/deep-agents-data-analysis.git` (`origin`).
 
 Commit only when the user explicitly asks. Push only when the user explicitly asks. Do not update git config, skip hooks, or force-push `main`.
 

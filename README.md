@@ -1,4 +1,4 @@
-# deep-agents
+# deep-agents-data-analysis
 
 A local data-analysis agent. It writes sample sales data, asks an [Ollama](https://ollama.com) model to plot it with matplotlib, then posts the analysis and the chart to Slack through a custom tool.
 

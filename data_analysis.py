@@ -1,36 +1,34 @@
 # ---- Data Analysis ----
-# A simple example of a data analysis agent that uses a custom tool to send messages to Slack.
+# A data analysis agent that runs in a LangSmith sandbox and sends results to Slack.
 
 # -- Imports --
 
 import csv
+import getpass
 import io
 import os
-from pathlib import Path
 
 from deepagents import create_deep_agent
-from deepagents.backends import LocalShellBackend
-from dotenv import load_dotenv
+from deepagents.backends.langsmith import LangSmithSandbox
+from langchain.agents.middleware import TodoListMiddleware
 from langchain.tools import tool
 from langchain_core.utils.uuid import uuid7
-from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import InMemorySaver
+from langsmith.sandbox import SandboxClient
 from slack_sdk import WebClient
 
 # -- Load environment variables --
-# This is a simple example of how to load environment variables from a .env file.
+# LangSmith reads these when the sandbox client starts.
 
-load_dotenv()
-# llama3.1:8b returns real Ollama tool calls and fits a 16 GB Mac.
-# num_ctx has to cover the deep-agent prompt plus the tool list.
-olla_model = ChatOllama(model="llama3.1:8b", temperature=0, num_ctx=16384)
+os.environ["LANGSMITH_TRACING"] = "true"
+os.environ["LANGSMITH_API_KEY"] = getpass.getpass()
 
-# ---- Local shell backend ----
-# Runs file and shell commands on this machine. No isolation.
+# ---- LangSmith sandbox backend ----
+# Runs the agent in a remote LangSmith sandbox.
 
-workspace = Path(__file__).parent / "workspace"
-workspace.mkdir(exist_ok=True)
-backend = LocalShellBackend(root_dir=workspace, inherit_env=True)
+client = SandboxClient()
+ls_sandbox = client.create_sandbox()
+backend = LangSmithSandbox(sandbox=ls_sandbox)
 
 # ---- Import data ----
 
@@ -52,14 +50,14 @@ csv_bytes = text_buf.getvalue().encode("utf-8")
 text_buf.close()
 
 # Upload to backend
-backend.upload_files([("/data/sales_data.csv", csv_bytes)])
+backend.upload_files([("/root/data/sales_data.csv", csv_bytes)])
 
 # ---- Custom tools ----
 
-
 slack_token = os.environ["SLACK_USER_TOKEN"]
 slack_client = WebClient(token=slack_token)
-channel = "C0C6TPUFU85"  # specify your own channel here
+channel = "C0123456ABC"  # specify your own channel here
+
 
 @tool(parse_docstring=True)
 def slack_send_message(text: str, file_path: str | None = None) -> str:
@@ -87,18 +85,11 @@ def slack_send_message(text: str, file_path: str | None = None) -> str:
 checkpointer = InMemorySaver()
 
 agent = create_deep_agent(
-    model=olla_model,
+    model="google_genai:gemini-3.6-flash",
     tools=[slack_send_message],
-    system_prompt=(
-        "Do this in two separate turns, one tool call each.\n"
-        "1. Call execute once. Run Python that reads data/sales_data.csv and "
-        "writes a PNG to data/sales_plot.png. Use matplotlib and do not call plt.show().\n"
-        "2. After execute succeeds, call slack_send_message once. "
-        "Pass only text and file_path='/data/sales_plot.png'. "
-        "Do not pass a shell command, and do not invent a file path."
-    ),
     backend=backend,
     checkpointer=checkpointer,
+    middleware=[TodoListMiddleware()],
 )
 
 thread_id = str(uuid7())
@@ -109,8 +100,8 @@ config = {"configurable": {"thread_id": thread_id}}
 input_message = {
     "role": "user",
     "content": (
-        "Analyze data/sales_data.csv, save a plot to data/sales_plot.png, "
-        "then send the analysis and the plot to Slack."
+        "Analyze ./data/sales_data.csv in the current dir and generate a beautiful plot. "
+        "When finished, send your analysis and the plot to Slack using the tool."
     ),
 }
 stream = agent.stream_events(
